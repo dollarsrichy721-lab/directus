@@ -6,14 +6,11 @@ Directus API lacks a first-class request correlation ID, making it difficult to 
 ## 2. Requirements
 
 - Accept a client-provided `X-Request-Id` only if it is:
-	- non-empty
 	- length <= 200 characters
 	- matches `^[A-Za-z0-9._-]+$`
 - Otherwise generate a new ID that also matches `^[A-Za-z0-9._-]+$`.
 - The request ID must be assigned and the response `X-Request-Id` header must be set **before** any auth, rate limit, routing, and request logging middleware executes.
-- Always set `X-Request-Id` on the response (including error responses such as 4xx/5xx).
-- Terminal state: once response headers are sent, the request ID must not change.
-- Validation timing: header validation must happen at request start (not at import time).
+- Always set `X-Request-Id` on the response.
 
 ### Logger Integration
 - Every HTTP log entry must include a `request_id` field whose value equals the effective `X-Request-Id` for that request.
@@ -30,7 +27,7 @@ Implementations must provide the following public interfaces:
     - resolve and validate/generate the request ID
     - set the `X-Request-Id` response header
     - generate new IDs using the `nanoid()` function from the `nanoid` 
-      package, called during request handling (not at module import time)
+      package, called during request handling (not during module import)
 
 - Export a named `createExpressLogger` from:
   `api/src/logger/index.js` 

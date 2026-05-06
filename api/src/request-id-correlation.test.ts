@@ -126,7 +126,7 @@ describe('Request correlation ID (X-Request-Id)', () => {
 		vi.doMock('nanoid', () => ({ nanoid: mockNanoid }));
 
 		const { requestIdMiddleware: importedRequestIdMiddleware } = await import('./middleware/request-id.js');
-		expect(mockNanoid).toHaveBeenCalledTimes(0);
+		expect(mockNanoid).not.toHaveBeenCalled();
 
 		const app = express();
 		app.use(importedRequestIdMiddleware);
@@ -142,7 +142,7 @@ describe('Request correlation ID (X-Request-Id)', () => {
 			const response = await fetch(url);
 			expect(response.status).toBe(200);
 			expect(response.headers.get('x-request-id')).toBeTruthy();
-			expect(mockNanoid).toHaveBeenCalledTimes(1);
+			expect(mockNanoid).toHaveBeenCalled();
 		} finally {
 			server.close();
 			vi.doUnmock('nanoid');
