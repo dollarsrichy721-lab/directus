@@ -3,16 +3,18 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-MODE="${1:-}"
+MODE=""
 OUTPUT_PATH=""
 
-# Parse --output_path argument
-shift || true
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --output_path)
       OUTPUT_PATH="$2"
       shift 2
+      ;;
+    base|new)
+      MODE="$1"
+      shift
       ;;
     *)
       shift
