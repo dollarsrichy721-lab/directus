@@ -6,32 +6,14 @@ Directus API lacks a first-class request correlation ID, making it difficult to 
 
 ## 2. Requirements
 
-- Accept a client-provided `X-Request-Id` only if it is:
-  - length <= 200 characters
-  - matches `^[A-Za-z0-9._-]+$`
-- Otherwise generate a new ID using `nanoid()`.
-- The request ID must be assigned and the response `X-Request-Id` header must be set **before** any auth, rate limit, routing, and request logging middleware executes.
+Accept a client-provided `X-Request-Id` only when its length is <= 200 and it matches `^[A-Za-z0-9._-]+$`; otherwise generate a new ID with `nanoid()`. The request ID must be assigned and the `X-Request-Id` response header set **before** any auth, rate limit, routing, and request logging middleware executes.
 
 ### Logger Integration
 
-- `createExpressLogger` must set a `request_id` field via `customProps` in `pino-http` equal to the effective `X-Request-Id` for that request.
+Update `createExpressLogger` to set a `request_id` field via `customProps` equal to the response `X-Request-Id`.
 
 ## 3. Test Assumptions
 
-Implementations must provide the following public interfaces:
+Export `requestIdMiddleware` from `api/src/middleware/request-id.js`, `REQUEST_ID_HEADER` (= `'X-Request-Id'`) from `api/src/utils/request-id.js`, and update `createExpressLogger` in `api/src/logger/index.js` to set `request_id` via `pino-http` `customProps`.
 
-- Export a named `requestIdMiddleware` from:
-  `api/src/middleware/request-id.js`
-  - This middleware must:
-    - set the `X-Request-Id` response header
-    - generate new IDs using the `nanoid()` function from the `nanoid` package, called during request handling (not during module import)
-    - generated IDs must be <= 200 characters and match `^[A-Za-z0-9._-]+$`
-
-- Export a named `createExpressLogger` from:
-  `api/src/logger/index.js`
-  - Must return an Express middleware built using `pino-http` with the named export `pinoHttp` from `'pino-http'`
-  - Must set a `request_id` field via `customProps`
-
-- Export a named constant `REQUEST_ID_HEADER` from:
-  `api/src/utils/request-id.js`
-  - Value must be `'X-Request-Id'`
+The `requestIdMiddleware` must call `nanoid()` from the `nanoid` package during request handling (not during module import).
