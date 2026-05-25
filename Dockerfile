@@ -11,3 +11,5 @@ RUN node --version && \
     pnpm install --frozen-lockfile
 RUN pnpm -r build
 CMD ["bash"]
+
+# force cache bust
