@@ -11,13 +11,13 @@ index 520f364aa4..87d31e6177 100644
  import projectSchedule from './schedules/project.js';
  import retentionSchedule from './schedules/retention.js';
 @@ -214,6 +215,8 @@ export default async function createApp(): Promise<express.Application> {
-
+ 
  	await emitter.emitInit('middlewares.before', { app });
-
+ 
 +	app.use(requestIdMiddleware);
 +
  	app.use(createExpressLogger());
-
+ 
  	app.use((_req, res, next) => {
 diff --git a/api/src/logger/index.ts b/api/src/logger/index.ts
 index 6576154278..d2a8ec9a28 100644
@@ -30,7 +30,7 @@ index 6576154278..d2a8ec9a28 100644
 +import { REQUEST_ID_HEADER, resolveRequestId } from '../utils/request-id.js';
  import { LogsStream } from './logs-stream.js';
  import { redactQuery } from './redact-query.js';
-
+ 
  export const _cache: {
 -	logger: Logger<never> | undefined;
 -	logsStream: LogsStream | undefined;
@@ -39,7 +39,7 @@ index 6576154278..d2a8ec9a28 100644
 +  logsStream: LogsStream | undefined;
 +  httpLogsStream: LogsStream | undefined;
  } = { logger: undefined, logsStream: undefined, httpLogsStream: undefined };
-
+ 
  export const useLogger = () => {
 @@ -220,6 +221,26 @@ export const createExpressLogger = () => {
  	return pinoHttp({
