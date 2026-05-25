@@ -1,0 +1,148 @@
+diff --git a/api/src/app.ts b/api/src/app.ts
+index 520f364aa4..87d31e6177 100644
+--- a/api/src/app.ts
++++ b/api/src/app.ts
+@@ -74,6 +74,7 @@ import rateLimiter from './middleware/rate-limiter-ip.js';
+ import requestCounter from './middleware/request-counter.js';
+ import sanitizeQuery from './middleware/sanitize-query.js';
+ import schema from './middleware/schema.js';
++import { requestIdMiddleware } from './middleware/request-id.js';
+ import metricsSchedule from './schedules/metrics.js';
+ import projectSchedule from './schedules/project.js';
+ import retentionSchedule from './schedules/retention.js';
+@@ -214,6 +215,8 @@ export default async function createApp(): Promise<express.Application> {
+ 
+ 	await emitter.emitInit('middlewares.before', { app });
+ 
++	app.use(requestIdMiddleware);
++
+ 	app.use(createExpressLogger());
+ 
+ 	app.use((_req, res, next) => {
+diff --git a/api/src/logger/index.ts b/api/src/logger/index.ts
+index 6576154278..d2a8ec9a28 100644
+--- a/api/src/logger/index.ts
++++ b/api/src/logger/index.ts
+@@ -8,13 +8,14 @@ import { type AutoLoggingOptions, pinoHttp, stdSerializers } from 'pino-http';
+ import { httpPrintFactory } from 'pino-http-print';
+ import { build as pinoPretty } from 'pino-pretty';
+ import { getConfigFromEnv } from '../utils/get-config-from-env.js';
++import { REQUEST_ID_HEADER, resolveRequestId } from '../utils/request-id.js';
+ import { LogsStream } from './logs-stream.js';
+ import { redactQuery } from './redact-query.js';
+ 
+ export const _cache: {
+-	logger: Logger<never> | undefined;
+-	logsStream: LogsStream | undefined;
+-	httpLogsStream: LogsStream | undefined;
++  logger: Logger<never> | undefined;
++  logsStream: LogsStream | undefined;
++  httpLogsStream: LogsStream | undefined;
+ } = { logger: undefined, logsStream: undefined, httpLogsStream: undefined };
+ 
+ export const useLogger = () => {
+@@ -220,6 +221,26 @@ export const createExpressLogger = () => {
+ 	return pinoHttp({
+ 		logger: pino(mergedHttpOptions, pino.multistream(streams)),
+ 		...httpLoggerEnvConfig,
++		genReqId: (req, res) => {
++			const existing = (req as any).id;
++
++			if (typeof existing === 'string' && existing.length > 0) {
++				return existing;
++			}
++
++			const requestId = resolveRequestId(req.headers);
++			(res as any).setHeader?.(REQUEST_ID_HEADER, requestId);
++			(req as any).id = requestId;
++			return requestId;
++		},
++		customProps: (req, res) => {
++			const requestId =
++				(typeof (req as any).id === 'string' && (req as any).id.length > 0
++					? (req as any).id
++					: (res.getHeader(REQUEST_ID_HEADER) as string | undefined) ?? undefined);
++
++			return requestId ? { request_id: requestId } : {};
++		},
+ 		serializers: {
+ 			req(request: Request) {
+ 				const output = stdSerializers.req(request);
+diff --git a/api/src/middleware/request-id.ts b/api/src/middleware/request-id.ts
+new file mode 100644
+index 0000000000..68611e45d6
+--- /dev/null
++++ b/api/src/middleware/request-id.ts
+@@ -0,0 +1,11 @@
++import type { RequestHandler } from 'express';
++import { nanoid } from 'nanoid';
++import { REQUEST_ID_HEADER, isValidRequestId } from '../utils/request-id.js';
++
++export const requestIdMiddleware: RequestHandler = (req, res, next) => {
++  const incoming = req.headers[REQUEST_ID_HEADER.toLowerCase()] as string | undefined;
++  const requestId = isValidRequestId(incoming) ? incoming : nanoid();
++  res.setHeader(REQUEST_ID_HEADER, requestId);
++  (req as any).id = requestId;
++  next();
++};
+diff --git a/api/src/types/express.d.ts b/api/src/types/express.d.ts
+index 50d34fd29c..8ad8e17d4d 100644
+--- a/api/src/types/express.d.ts
++++ b/api/src/types/express.d.ts
+@@ -9,6 +9,7 @@ export {};
+ declare global {
+ 	namespace Express {
+ 		export interface Request {
++			id?: string;
+ 			token: string | null;
+ 			collection: string;
+ 			sanitizedQuery: Query;
+diff --git a/api/src/utils/request-id.ts b/api/src/utils/request-id.ts
+new file mode 100644
+index 0000000000..3b6b58d664
+--- /dev/null
++++ b/api/src/utils/request-id.ts
+@@ -0,0 +1,18 @@
++import { nanoid } from 'nanoid';
++
++export const REQUEST_ID_HEADER = 'X-Request-Id';
++
++const VALID_PATTERN = /^[A-Za-z0-9._-]+$/;
++const MAX_LENGTH = 200;
++
++export function isValidRequestId(value: string | undefined | null): value is string {
++  if (!value || value.length === 0 || value.length > MAX_LENGTH) return false;
++  return VALID_PATTERN.test(value);
++}
++
++export function resolveRequestId(headers: Record<string, string | string[] | undefined>): string {
++  const value = headers[REQUEST_ID_HEADER.toLowerCase()];
++  const str = Array.isArray(value) ? value[0] : value;
++
++return isValidRequestId(str) ? str : nanoid();
++}
+diff --git a/problem_description.md b/problem_description.md
+new file mode 100644
+index 0000000000..0607085160
+--- /dev/null
++++ b/problem_description.md
+@@ -0,0 +1,19 @@
++# Request ID correlation for API logs and responses
++
++## 1. Problem Brief
++
++Directus API lacks a first-class request correlation ID, making it difficult to trace a single HTTP request across logs, reverse proxies, and error reports. Add a consistent request ID so every response exposes an identifier and every HTTP log line can be tied to the same request.
++
++## 2. Requirements
++
++Accept a client-provided `X-Request-Id` only when its length is <= 200 and it matches `^[A-Za-z0-9._-]+$`; otherwise generate a new ID. The request ID must be assigned and the `X-Request-Id` response header set **before** request logging middleware executes.
++
++### Logger Integration
++
++Update `createExpressLogger` to set a `request_id` field via `customProps` equal to the response `X-Request-Id`.
++
++## 3. Test Assumptions
++
++Export `requestIdMiddleware` from `api/src/middleware/request-id.js` and `REQUEST_ID_HEADER` (= `'X-Request-Id'`) from `api/src/utils/request-id.js`.
++
++The `requestIdMiddleware` must call `nanoid()` from the `nanoid` package during request handling (not during module import).
